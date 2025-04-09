@@ -1,0 +1,68 @@
+from scapy.all import *
+from scapy.layers import http
+import argparse
+import signal
+import sys
+
+# Colors for better output
+class colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    END = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+def signal_handler(sig, frame):
+    print(f"\n{colors.RED}[!] Exiting sniffer...{colors.END}")
+    sys.exit(0)
+
+def process_packet(packet):
+    if packet.haslayer(http.HTTPRequest):
+        url = packet[http.HTTPRequest].Host.decode() + packet[http.HTTPRequest].Path.decode()
+        print(f"\n{colors.GREEN}[+] HTTP Request >> {url}{colors.END}")
+        
+        if packet.haslayer(Raw):
+            load = packet[Raw].load.decode()
+            for term in ["username", "user", "login", "password", "pass"]:
+                if term in load:
+                    print(f"\n{colors.RED}[!] Possible credentials >> {load}{colors.END}")
+                    break
+    
+    if packet.haslayer(TCP):
+        src_ip = packet[IP].src
+        dst_ip = packet[IP].dst
+        src_port = packet[TCP].sport
+        dst_port = packet[TCP].dport
+        print(f"\n{colors.BLUE}[*] TCP Packet: {src_ip}:{src_port} -> {dst_ip}:{dst_port}{colors.END}")
+    
+    if packet.haslayer(DNS):
+        if packet[DNS].qr == 0:  # DNS query
+            print(f"\n{colors.YELLOW}[?] DNS Query: {packet[DNSQR].qname.decode()}{colors.END}")
+
+def sniff_packets(interface):
+    print(f"{colors.HEADER}[*] Starting sniffer on interface {interface}{colors.END}")
+    try:
+        sniff(iface=interface, store=False, prn=process_packet)
+    except PermissionError:
+        print(f"{colors.RED}[!] Permission denied. Try running with sudo.{colors.END}")
+    except Exception as e:
+        print(f"{colors.RED}[!] Error: {e}{colors.END}")
+
+def get_arguments():
+    parser = argparse.ArgumentParser(description='Basic Network Sniffer')
+    parser.add_argument('-i', '--interface', dest='interface', help='Network interface to sniff on')
+    options = parser.parse_args()
+    
+    if not options.interface:
+        parser.error(f"{colors.RED}[!] Please specify an interface, use --help for more info.{colors.END}")
+    
+    return options
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGINT, signal_handler)
+    options = get_arguments()
+    sniff_packets(options.interface)
